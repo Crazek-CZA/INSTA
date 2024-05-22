@@ -249,3 +249,84 @@ x = '0,2'
   - 返回配置好的 `argparse.ArgumentParser` 对象，供主程序或模块调用以解析命令行输入。
 
 这个 `get_command_line_parser` 函数为程序提供了丰富的配置选项，使得训练和评估过程更加灵活和可调整。
+
+#### <center>data_parallel.py
+
+##### scatter
+
+这段代码定义了一个名为`scatter`的函数，它的主要作用是将张量（tensors）切分成大致相等的块，并将这些块分布到指定的GPU上。如果对象不是张量，则复制对非张量对象的引用。
+
+整个`scatter`函数的目的是为了并行处理数据，特别是在使用多GPU进行深度学习模型训练时，这种数据分散（scatter）操作非常关键。它使得每个GPU可以处理输入数据的一部分，从而加速整个训练过程。
+
+##### scatter_kwargs
+
+这个函数的主要作用是为了在使用多GPU并行处理时，能够同时处理常规输入和关键字参数。这样做可以确保在并行应用模型或函数时，所有需要的数据和参数都被正确地分散到各个GPU上。这对于保持并行计算的一致性和效率至关重要。
+##### BalancedDataParallel类
+
+这段代码定义了一个名为 `BalancedDataParallel` 的类，它是 `DataParallel` 类的子类，用于在PyTorch中实现更平衡的数据分布到多个GPU上。下面是对这个类的详细解释：
+
+1. **初始化 (`__init__` 方法)**：
+   - `def __init__(self, gpu0_bsz, *args, **kwargs):`
+     - `gpu0_bsz`：第一个GPU上的批次大小。这个参数用于定义第一个GPU应处理的数据批次的大小。
+     - `*args` 和 `**kwargs`：这些参数和关键字参数将传递给 `DataParallel` 类的初始化方法。
+   - `self.gpu0_bsz = gpu0_bsz`：存储第一个GPU的批次大小。
+   - `super().__init__(*args, **kwargs)`：调用父类 `DataParallel` 的构造函数，初始化父类。
+
+2. **前向传播 (`forward` 方法)**：
+   - 如果没有设备ID (`self.device_ids`)，直接使用模块处理输入。
+   - 根据 `self.gpu0_bsz`（第一个GPU的批次大小）来决定如何分配GPU。如果为0，则跳过第一个GPU。
+   - 调用 `self.scatter` 来分散输入到不同的GPU上。
+   - 如果只有一个GPU，直接在该GPU上运行模型。
+   - 通过 `self.replicate` 将模型复制到所有指定的GPU。
+   - 如果 `gpu0_bsz` 为0，排除第一个GPU的副本。
+   - 调用 `self.parallel_apply` 来并行应用模型到不同的GPU上的数据。
+   - 使用 `self.gather` 收集各GPU上的输出结果。
+
+3. **并行应用 (`parallel_apply` 方法)**：
+   - `parallel_apply` 方法使用 `parallel_apply` 函数将模型副本应用到输入上，这是在多GPU上并行执行的核心。
+
+4. **数据分散 (`scatter` 方法)**：
+   - 这个方法负责将输入数据分散到各个GPU上。它首先计算每个GPU（除了第一个GPU）应处理的基础批次大小。
+   - 如果第一个GPU的批次大小小于基础批次大小，它将计算各个GPU的批次大小，使总和等于输入数据的批次大小。如果需要，会对部分GPU的批次大小进行微调。
+   - 如果第一个GPU的批次大小不小于基础批次大小，它将调用父类的 `scatter` 方法。
+   - 返回调用 `scatter_kwargs` 函数的结果，这个函数是之前定义的，用于同时处理输入数据和关键字参数。
+
+总体来说，`BalancedDataParallel` 类旨在提供一种更平衡的方式来分配数据到多个GPU上，特别是在第一个GPU的批次大小与其他GPU不同时，这有助于提高多GPU训练的效率和性能。
+
+### <center>train_fsl.py
+
+这段Python代码主要用于训练和评估一个基于PyTorch框架的少样本学习（Few-Shot Learning, FSL）模型。下面是对这段代码的具体解释：
+
+1. **导入模块**：
+   - `import numpy as np`：导入NumPy库，一个常用的数值计算工具包。
+   - `import torch`：导入PyTorch库，一个流行的深度学习框架。
+   - `from model.trainer.fsl_trainer import FSLTrainer`：从`model.trainer.fsl_trainer`模块导入`FSLTrainer`类，这个类可能是定义了训练和评估少样本学习模型的逻辑。
+   - `from model.utils import (...)`：从`model.utils`模块导入多个函数和工具，包括：
+     - `pprint`：可能是一个打印工具，用于美化输出。
+     - `set_gpu`：用于设置GPU设备。
+     - `get_command_line_parser`：获取命令行解析器，用于解析命令行参数。
+     - `postprocess_args`：对解析后的命令行参数进行后处理。
+
+2. **主程序入口 (`if __name__ == '__main__':`)**：
+   - 这部分代码只有在直接运行该脚本时才会执行。
+   
+3. **解析命令行参数**：
+   - `parser = get_command_line_parser()`：创建一个命令行参数解析器。
+   - `args = postprocess_args(parser.parse_args())`：解析命令行参数，并对这些参数进行后处理。
+
+4. **打印参数**：
+   - `pprint(vars(args))`：使用`pprint`函数打印出解析后的参数。`vars(args)`将`args`对象转换为字典形式，以便更易于阅读和打印。
+
+5. **设置GPU**：
+   - `set_gpu(args.gpu)`：根据参数`args.gpu`设置GPU设备。这允许用户指定训练和评估模型时使用的GPU。
+
+6. **初始化训练器并训练**：
+   - `trainer = FSLTrainer(args)`：创建一个`FSLTrainer`实例，传入处理后的参数`args`。
+   - `trainer.train()`：使用训练器对象的`train`方法来训练模型。
+   - `trainer.evaluate_test()`：使用训练器的`evaluate_test`方法评估测试集。
+   - `trainer.final_record()`：记录最终结果。
+
+7. **打印保存路径**：
+   - `print(args.save_path)`：打印模型保存路径，这是模型训练和评估结果存储的位置。
+
+整体而言，这段代码通过命令行参数控制模型训练和评估的流程，利用了PyTorch框架的功能，并结合自定义的训终器和工具函数来实现少样本学习模型的训练和测试。
